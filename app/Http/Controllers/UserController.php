@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\LogTable;
 use App\Models\Configuration;
 use App\Models\JobTable;
 use App\Models\LinkType;
 use App\Models\MatchingTable;
 use App\Models\UserInput;
+use App\TripDetail;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\RequestOptions;
@@ -14,6 +16,72 @@ use Illuminate\Http\Request;
 
 class UserController extends Controller
 {
+    private static function stepSeven( $conf, $trip_id)
+    {
+        $client = new Client();
+        $url = 'https://automotive.internetofthings.ibmcloud.com/driverinsights/drbresult/trip';
+        $res = null;
+        try{
+            $res = $client->request('GET', $url, [
+                'auth' => [
+                    $conf->D_user,
+                    $conf->D_password
+                ],
+                'query' => [
+                    'trip_uuid' => $trip_id,
+                    'tenant_id'=> $conf->D_tenant_id
+                ]
+            ]);
+        }catch (ClientException $exception){
+            echo $exception->getMessage();
+            die();
+        }
+        if($res->getStatusCode() == '200'){
+            $res = json_decode($res->getBody()->getContents());
+            TripDetail::create([
+               "trip_uuid" => $trip_id,
+                "response" => json_encode($res)
+            ]);
+            return $res;
+        }
+        return null;
+
+    }
+
+    private static function stepSix($user_input, $conf, $job)
+    {
+        $client = new Client();
+        $url = 'https://automotive.internetofthings.ibmcloud.com/driverinsights/drbresult/tripSummaryList';
+        $res = null;
+        try{
+            $res = $client->request('GET', $url, [
+                'auth' => [
+                    $conf->D_user,
+                    $conf->D_password
+                ],
+                'query' => [
+                    'trip_id'=>$user_input->trip_id,
+                    'tenant_id'=> $conf->D_tenant_id,
+                    'job_id'=> $job->job_id,
+                    'mo_id' => $user_input->mo_id
+                ]
+            ]);
+        }catch (ClientException $exception){
+            echo $exception->getMessage();
+            die();
+        }
+        if($res->getStatusCode() == '200'){
+            $res = json_decode($res->getBody()->getContents());
+            LogTable::create([
+                "job_id" => "six",
+                "status" => $res
+            ]);
+            dd($res);
+            return $res;
+        }
+        return null;
+    }
+
     private static function stepFive($conf, $job)
     {
         $client = new Client();
@@ -36,7 +104,7 @@ class UserController extends Controller
         }
         if($res->getStatusCode() == '200'){
             $res = json_decode($res->getBody()->getContents());
-            return $res->job_status;
+            return $res->job_status == "RUNNING" ? self::stepFive($conf,$job) : $res;
         }
         return null;
     }
@@ -56,8 +124,8 @@ class UserController extends Controller
                     'tenant_id'=> $conf->D_tenant_id
                 ],
                 RequestOptions::JSON => [
-                    "from"=> $user_input->timestamp,
-                    "to"=> $user_input->timestamp,
+                    "from"=> $user_input->time_stamp,
+                    "to"=> $user_input->time_stamp,
                 ]
             ]);
         }catch (ClientException $exception){
@@ -76,23 +144,6 @@ class UserController extends Controller
 
     private static function stepthree($conf,$user_input,$match,$linktype)
     {
-        $t = [
-            "trip_id"=> $user_input->trip_id,
-            "timestamp"=> $user_input->timestamp,
-            "distance"=> $match->distance,
-            "matched_heading"=> $match->matched_heading,
-            "speed" => $user_input->speed,
-            "matched_longitude" => $match->matched_longitude,
-            "mo_id" => $user_input->mo_id,
-            "driver_id" => $user_input->driver_id,
-            "longitude" => $user_input->longitude,
-            "matched_latitude" => $match->matched_latitude,
-            "matched_link_id" => $match->link_id,
-            "latitude" => $user_input->latitude,
-            "road_type" => $linktype["properties"]["type"],
-            "heading" => $user_input->heading
-        ];
-//        dd($t);
         $client = new Client();
         $url = 'https://automotive.internetofthings.ibmcloud.com/driverinsights/datastore/carProbe';
         $res = null;
@@ -107,17 +158,17 @@ class UserController extends Controller
                 ],
                 RequestOptions::JSON => [
                     "trip_id"=> $user_input->trip_id,
-                    "timestamp"=> $user_input->timestamp,
+                    "timestamp"=> $user_input->time_stamp,
                     "distance"=> $match->distance,
                     "matched_heading"=> $match->matched_heading,
                     "speed" => $user_input->speed,
                     "matched_longitude" => $match->matched_longitude,
                     "mo_id" => $user_input->mo_id,
-                    "driver_id" => $user_input->driver_id,
-                    "longitude" => $user_input->longitude,
+                    "driver_id" => '123456',
+                    "longitude" => $user_input->long,
                     "matched_latitude" => $match->matched_latitude,
                     "matched_link_id" => $match->link_id,
-                    "latitude" => $user_input->latitude,
+                    "latitude" => $user_input->lat,
                     "road_type" => $linktype["properties"]["type"],
                     "heading" => $user_input->heading
                 ]
@@ -176,12 +227,12 @@ class UserController extends Controller
                     $conf->C_password
                 ],
                 'query' => ['trip_id'=>$user_input->trip_id,
-                            'latitude'=> $user_input->latitude,
-                            'heading'=> $user_input->heading,
-                            'timestamp'=> $user_input->timestamp,
+                            'latitude'=> $user_input->lat,
+//                            'heading'=> $user_input->heading,
+                            'timestamp'=> $user_input->time_stamp,
                             'tenant_id'=> $conf->C_tenant_id,
                             'mo_id'=> $user_input->mo_id,
-                            'longitude'=> $user_input->longitude ]
+                            'longitude'=> $user_input->long ]
             ]);
         }catch (ClientException $exception){
             echo $exception->getMessage();
@@ -209,8 +260,13 @@ class UserController extends Controller
     }
 
     public function start(Request $request){
-        $user_input = UserInput::find($request->session()->get('user_id'));
-        if($user_input){
+        $file = json_decode(file_get_contents($_FILES["json"]["tmp_name"]),true);
+        $file = array_values(array_values($file)[0])[0];
+        foreach ($file as $user_input){
+            $user_input["mo_id"] = 300;
+            $user_input["trip_id"] = 100;
+            $user_input["heading"] = '';
+            $user_input = (object)$user_input;
             $conf = Configuration::first();
             if(!$conf){
                 $output["error"] = "Credentials not set.";
@@ -221,16 +277,29 @@ class UserController extends Controller
                 $link = self::stepTwo($conf,$match);
                 if($link){
                     self::stepThree($conf,$user_input,$match,$link);
-                    $job = self::stepFour($conf,$user_input);
-                    if($job){
-                        $status = self::stepFive($conf,$job);
-                        session()->flash('job',"Job status is " . $status);
-                        return redirect('/start');
-                    }
+                }
+            }
+        }
+        $job = self::stepFour($conf,$user_input);
+        if($job){
+            $res = self::stepFive($conf,$job);
+            LogTable::create([
+                "job_id" => $res->job_id,
+                "status" => $res->job_status
+            ]);
+            if($res->job_status == "KILLED"){
+                $trips = self::stepSix($user_input,$conf,$job);
+                session()->flash('job',"Job status is " . $res->job_status);
+                return redirect('/');
+            }else{
+                echo 'asd';
+                $trips = self::stepSix($user_input,$conf,$job);
+                if($trips){
+                    self::stepSeven($conf,'123456');
                 }
             }
         }
         session()->flash('job',"Something went wrong ! Try again.");
-        return redirect('/start');
+        return redirect('/');
     }
 }

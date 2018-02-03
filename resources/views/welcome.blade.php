@@ -16,11 +16,11 @@
         <form action="/save/user/info" method="post">
             <div class="form-group">
                 <label for="">Latitude:</label>
-                <input type="number" step="0" class="form-control" placeholder="Enter latitude" required name="latitude">
+                <input type="text" step="0" class="form-control" placeholder="Enter latitude" required name="latitude">
             </div>
             <div class="form-group">
                 <label for="">Longitude:</label>
-                <input type="number" step="0" class="form-control" placeholder="Enter longitude" required name="longitude">
+                <input type="text" step="0" class="form-control" placeholder="Enter longitude" required name="longitude">
             </div>
             <div class="form-group">
                 <label for="">Heading:</label>

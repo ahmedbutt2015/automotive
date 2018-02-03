@@ -9,12 +9,11 @@
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
 </head>
 <body>
-<nav class="navbar navbar-toggleable-md navbar-light bg-faded">
-    <a class="navbar-brand" href="/">Home</a>
-</nav>
 <div class="container">
     <div class="row" style="text-align: center;position: absolute; top: 50% ;left: 50%">
-        <form action="" method="post">
+        <form action="" method="post" enctype="multipart/form-data">
+            <label for="#json">Upload Json File</label>
+            <input type="file" id="json" class="form-control" name="json">
             {{csrf_field()}}
             <button class="btn btn-lg btn-success">Start !</button>
         </form>
